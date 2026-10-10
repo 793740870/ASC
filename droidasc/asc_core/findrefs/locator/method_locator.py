@@ -107,7 +107,13 @@ class MethodLocator(BaseLocator):
 
         if clz is None:
             if method_precise:
-                return {mid for mid, item in enumerate(self.dex.methods) if item.name == method}
+                # dex.methods is a proxy without __iter__, so enumerate() falls back
+                # to the sequence protocol and never sees an IndexError - it walks off
+                # the method table into garbage. Bound the walk by the table size.
+                return {
+                    mid for mid in range(len(self.dex.methods))
+                    if self.dex.methods[mid].name == method
+                }
             name_idxs = self.str_locator.locate(method)
             method_maps = self.method_maps
             ret = set()
