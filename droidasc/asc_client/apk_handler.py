@@ -415,6 +415,10 @@ class ApkHandler:
             fp.close()
 
     def list_classes(self, prefix : str = None):
+        # deferred like the ProcessPoolExecutor import in for_each_findrefs, so the
+        # getclass path does not pay for it
+        from droidasc.asc_core.utils.tinydex import _decode_mutf8_fallback
+
         if self.max_workers <= 0:
             raise ValueError("Worker count must be greater than zero")
         if prefix is not None:
@@ -424,6 +428,15 @@ class ApkHandler:
             if not prefix.startswith("L"):
                 prefix = "L" + prefix.replace(".", "/")
         prefix_bytes = prefix.encode("ascii") if prefix and prefix.isascii() else None
+
+        def decode_name(raw_name : bytes) -> str:
+            # string_data_item is MUTF-8, so strict UTF-8 rejects a surrogate pair
+            # above the BMP; decode exactly as DEX.get_string does, or a listing
+            # names a class differently from every other command
+            try:
+                return raw_name.decode("utf-8")
+            except UnicodeDecodeError:
+                return _decode_mutf8_fallback(raw_name)
 
         def list_dex_classes(buf):
             if len(buf) < 0x70 or buf[:3] != b"dex":
@@ -464,9 +477,9 @@ class ApkHandler:
 
                 if prefix_bytes is not None:
                     if raw_name.startswith(prefix_bytes):
-                        append(raw_name.decode("utf-8", errors="replace"))
+                        append(decode_name(raw_name))
                 else:
-                    name = raw_name.decode("utf-8", errors="replace")
+                    name = decode_name(raw_name)
                     if prefix is None or name.startswith(prefix):
                         append(name)
             return names
