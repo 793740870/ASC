@@ -108,7 +108,12 @@ class FieldLocator(BaseLocator):
 
         if clz is None:
             if field_precise:
-                return {fid for fid, item in enumerate(self.dex.fields) if item.name == field}
+                # see MethodLocator.locate: dex.fields is a proxy without __iter__,
+                # so enumerate() walks off the field table instead of stopping at it
+                return {
+                    fid for fid in range(len(self.dex.fields))
+                    if self.dex.fields[fid].name == field
+                }
             name_idxs = self.str_locator.locate(field)
             field_maps = self.field_maps
             ret = set()
