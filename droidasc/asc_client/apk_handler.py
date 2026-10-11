@@ -366,9 +366,8 @@ class ApkHandler:
         # search in _find_type_idx relies on.
         #
         # The two encodings differ only above the BMP (and for an embedded NUL,
-        # which a descriptor cannot hold), so only such a name pays for the
-        # encoder - a compiled extension costing ~19ms to import, which every
-        # ordinary lookup would otherwise drag in on this path.
+        # which a descriptor cannot hold), so only such a name pays for the encoder
+        # and an ordinary lookup stays on the plain UTF-8 path.
         target_bytes = dalvik_class.encode("utf-8")
         if any(ord(ch) > 0xFFFF for ch in dalvik_class):
             from mutf8 import encode_modified_utf8
