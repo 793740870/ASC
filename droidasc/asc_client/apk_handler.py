@@ -359,7 +359,19 @@ class ApkHandler:
         return fp, mm
 
     def get_class_dex(self, dalvik_class : str):
+        # string_data_item is MUTF-8, not UTF-8: a code point above the BMP is
+        # stored as a surrogate pair (CESU-8), so a UTF-8-encoded query can never
+        # byte-match it and such a class was unreachable. MUTF-8 also keeps byte
+        # order aligned with the table's UTF-16 code-unit order, which the binary
+        # search in _find_type_idx relies on.
+        #
+        # The two encodings differ only above the BMP (and for an embedded NUL,
+        # which a descriptor cannot hold), so only such a name pays for the encoder
+        # and an ordinary lookup stays on the plain UTF-8 path.
         target_bytes = dalvik_class.encode("utf-8")
+        if any(ord(ch) > 0xFFFF for ch in dalvik_class):
+            from mutf8 import encode_modified_utf8
+            target_bytes = encode_modified_utf8(dalvik_class)
         t_start = time.perf_counter()
         fp, mm = self._open_apk()
         try:
