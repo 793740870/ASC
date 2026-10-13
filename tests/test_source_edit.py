@@ -449,12 +449,10 @@ class SourceEditTests(unittest.TestCase):
 
         names = ['Ll/\U00010000;', 'Ll/;']
         dex = DEX.parse(memoryview(bytes(_make_class_dex(names))), 'utf16-order.dex')
-        method = FindRefManager(dex)._get_method_locator(True)
-        field = FindRefManager(dex)._get_field_locator(True)
+        locator = FindRefManager(dex)._get_type_locator()
         for index, name in enumerate(names):
             with self.subTest(name=name):
-                self.assertEqual(method._find_type_idx_precisely(name), index)
-                self.assertEqual(field._find_type_idx_precisely(name), index)
+                self.assertEqual(locator._find_type_idx_precisely(name), index)
 
     def test_exact_field_locator_does_not_use_substring_matching(self):
         from dex_fixture import make_static_field_dex
