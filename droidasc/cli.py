@@ -7,6 +7,17 @@ import time
 t_start = time.perf_counter()
 
 
+def _version():
+    from importlib import metadata as _pkg_metadata
+
+    # Packaged version comes from the installed distribution metadata; this
+    # stays in sync with pyproject.toml on publish.
+    try:
+        return _pkg_metadata.version("droidasc")
+    except _pkg_metadata.PackageNotFoundError:
+        return "unknown"
+
+
 def _format_class_name(name : str) -> str:
     if not name:
         raise ValueError("Class name cannot be empty")
@@ -208,6 +219,9 @@ def main():
     if len(sys.argv) == 1:
         _build_main_parser().print_help()
         return
+    if sys.argv[1] in ("-V", "--version"):
+        print(_version())
+        return
     if "--gui" in sys.argv[1:]:
         _run_gui(sys.argv[1:])
         return
@@ -234,7 +248,8 @@ def main():
 
 def _build_main_parser():
     parser = argparse.ArgumentParser(
-        description="ASC tooling entry.",
+        prog="droidasc",
+        description=f"ASC tooling entry (v{_version()}).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""examples:
   droidasc app.apk --gui
@@ -248,6 +263,9 @@ def _build_main_parser():
   droidasc findrefs app.apk method onCreate --class com.poc.Main
   droidasc findrefs app.apk method notify --class MainActivity --fuzzy-class -o method_refs.txt
   droidasc findrefs app.apk field apiKey -o field_refs.txt
+  droidasc findrefs app.apk extends java.lang.Object
+  droidasc findrefs app.apk extends android.app.Activity -o subclasses.txt
+  droidasc findrefs app.apk impl android.os.IInterface -o impls.txt
 """,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
