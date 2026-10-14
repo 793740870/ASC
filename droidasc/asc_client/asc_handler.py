@@ -103,6 +103,20 @@ class AscHandler:
 
         dex = DEX.parse(memoryview(dex_buf), dex_name)
         ref_manager = FindRefManager(dex)
+        # extends/impl short-circuit in find_ref: they return class indexes, not
+        # containing-method indexes, so format them directly. find must be copied
+        # too -- find_ref rewrites the target key in place and workers reuse it.
+        if find_type in ("extends", "impl"):
+            target = find[find_type]
+            # scan_extends/scan_implements hand back type_id indexes (a class's
+            # class_idx field in class_def_item), not class_def positions, so
+            # resolve each directly through the type table.
+            class_idxs = ref_manager.find_ref(copy.deepcopy(find), True)
+            verb = "extends" if find_type == "extends" else "implements"
+            return [
+                f"{dex_name} | {dex.get_type(class_idx).descriptor} {verb} {target}"
+                for class_idx in class_idxs
+            ]
         # find_ref rewrites the selected query list with containing method
         # indexes. Keep the caller's query reusable across DEX workers.
         query = copy.deepcopy(find)

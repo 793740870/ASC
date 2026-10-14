@@ -94,6 +94,24 @@ class ReferenceTests(unittest.TestCase):
         plain = FindRefManager(dex).find_ref({'extends': 'Ljava/lang/Object;'})
         self.assertEqual(plain, result['extends'])
 
+    def test_cli_extends_and_impl_format(self):
+        # Scan the fixture's Test class through the CLI-style findrefs wrapper:
+        # output must carry the dex name, the type_id fullname, and the verb.
+        extends = AscHandler().findrefs(
+            'fixture.dex', make_dex(), 'extends', {'extends': 'Ljava/lang/Object;'}
+        )
+        self.assertTrue(extends)
+        self.assertTrue(any(
+            line.startswith('fixture.dex | ')
+            and ' extends Ljava/lang/Object;' in line and 'Lexample/Test;' in line
+            for line in extends
+        ), extends)
+        # impl of a target no class implements yields no rows, but no crash
+        impl = AscHandler().findrefs(
+            'fixture.dex', make_dex(), 'impl', {'impl': 'Ljava/io/Serializable;'}
+        )
+        self.assertEqual(impl, [])
+
 
 class InsnVerifyPatternTests(unittest.TestCase):
     """INSN_VERIFY must compile on every Python the project declares support for."""

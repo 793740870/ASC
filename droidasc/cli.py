@@ -48,6 +48,9 @@ def _get_find_query(args) -> tuple:
         return "string", {"string": args.value}
     if args.find_type == "type":
         return "type", {"type": args.value}
+    if args.find_type in ("extends", "impl"):
+        # scan_extends/scan_implements need the precise dalvik class form
+        return args.find_type, {args.find_type: _format_class_name(args.value)}
     if args.find_type == "method":
         return "method", _build_member_find("method", args.class_name, args.fuzzy_class, args.name)
     return "field", _build_member_find("field", args.class_name, args.fuzzy_class, args.name)
@@ -338,6 +341,38 @@ def _build_main_parser():
     )
     type_parser.add_argument("-o", "--output", help="Also write reference search output to this file.")
     type_parser.add_argument("value", help="Fuzzy type pattern.")
+
+    extends_parser = find_subparsers.add_parser(
+        "extends",
+        help="Find classes that extend the target class.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""examples:
+  droidasc findrefs app.apk extends android.app.Activity
+  droidasc findrefs app.apk extends com.poc.Base -o subclasses.txt
+""",
+    )
+    extends_parser.add_argument("-o", "--output", help="Also write subclass output to this file.")
+    # SUPPRESS so a flag given before the sub-command (handled by the parent
+    # parser) is not reset by the child's own default.
+    extends_parser.add_argument("--debug", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    extends_parser.add_argument("--threads", "--thread", type=int, default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    extends_parser.add_argument("value", help="Target class, e.g. android.app.Activity or Lcom/poc/Base;")
+
+    impl_parser = find_subparsers.add_parser(
+        "impl",
+        help="Find classes that implement the target interface.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""examples:
+  droidasc findrefs app.apk impl android.os.IInterface
+  droidasc findrefs app.apk impl com.poc.Service -o impls.txt
+""",
+    )
+    impl_parser.add_argument("-o", "--output", help="Also write implementor output to this file.")
+    # SUPPRESS so a flag given before the sub-command (handled by the parent
+    # parser) is not reset by the child's own default.
+    impl_parser.add_argument("--debug", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    impl_parser.add_argument("--threads", "--thread", type=int, default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    impl_parser.add_argument("value", help="Target interface, e.g. android.os.IInterface or Lcom/poc/Service;")
 
     method_parser = find_subparsers.add_parser(
         "method",
