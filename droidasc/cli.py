@@ -6,12 +6,9 @@ import time
 
 t_start = time.perf_counter()
 
-
 def _version():
     from importlib import metadata as _pkg_metadata
 
-    # Packaged version comes from the installed distribution metadata; this
-    # stays in sync with pyproject.toml on publish.
     try:
         return _pkg_metadata.version("droidasc")
     except _pkg_metadata.PackageNotFoundError:
@@ -216,17 +213,18 @@ def _run_gui(argv):
 
 
 def main():
+    argv = sys.argv[1:]
     if len(sys.argv) == 1:
-        _build_main_parser().print_help()
+        _build_main_parser(show_version=True).print_help()
         return
-    if sys.argv[1] in ("-V", "--version"):
+    if argv[0] in ("-v", "-V", "--version"):
         print(_version())
         return
-    if "--gui" in sys.argv[1:]:
-        _run_gui(sys.argv[1:])
+    if "--gui" in argv:
+        _run_gui(argv)
         return
 
-    parser = _build_main_parser()
+    parser = _build_main_parser(show_version=("-h" in argv or "--help" in argv))
     args = parser.parse_args()
 
     try:
@@ -246,10 +244,14 @@ def main():
         sys.exit(1)
 
 
-def _build_main_parser():
+def _build_main_parser(show_version=False):
     parser = argparse.ArgumentParser(
         prog="droidasc",
-        description=f"ASC tooling entry (v{_version()}).",
+        description=(
+            f"ASC tooling entry (v{_version()})."
+            if show_version
+            else "ASC tooling entry."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""examples:
   droidasc app.apk --gui
