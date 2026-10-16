@@ -1,4 +1,9 @@
 # Droid ASC: R8 Compiler Optimization as a DeCompiler Primitive
+
+> **Rust version:** This project has been rewritten 1:1 in Rust as [rust_ASC](https://github.com/MG1937/rust_ASC). The Rust version is 10× faster and supports full APK decompilation: with 16 threads, it decompiles a 383 MB APK in just 4 seconds. ASC and rust_ASC will be updated in sync going forward.
+>
+> If your workflow is written in Python, you can continue integrating with this project; it remains the fastest Python Android decompiler available. If you only need a binary, please use [rust_ASC](https://github.com/MG1937/rust_ASC).
+
 https://blackhat.com/europe/arsenal/schedule/index.html#droid-asc-r8-compiler-optimization-as-a-decompiler-primitive-54834  
 
 When decompiling massive Android APKs, the standard procedure is to wait. We wait for tools to eat gigabytes of RAM, fully inflate the artifacts, and spend tens of minutes building heavy global indexes and cross references... All of this is just to guarantee fast code searches later, but here is the contradiction. A compiled artifact is already highly structured, modern decompilers never utilize this, they waste massive amounts of time and memory reconstructing a bloated database of code relationships over already structured data. This engineering approach defies common sense. When I can directly extract any code relationship from the APK in milliseconds, does this preprocessing still hold any value?  
