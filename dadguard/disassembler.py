@@ -51,6 +51,7 @@ _ANNOTATION_VISIBILITY = {
     2: "system",
 }
 _BRANCH_OFFSET_RE = re.compile(r"([+-]?[0-9a-fA-F]+)h$")
+_METHOD_DESCRIPTOR_RE = re.compile(r"(->[^,\s]+)\(([^)]*)\)([^\s,]+)")
 
 
 def _format_instruction(index: int, offset: int, instruction) -> str:
@@ -87,6 +88,17 @@ def _quote(value) -> str:
 
 def _compact_descriptor(descriptor) -> str:
     return "".join(str(descriptor).split())
+
+
+def _compact_method_descriptors(text: str) -> str:
+    return _METHOD_DESCRIPTOR_RE.sub(
+        lambda match: "{}({}){}".format(
+            match.group(1),
+            _compact_descriptor(match.group(2)),
+            match.group(3),
+        ),
+        text,
+    )
 
 
 def _normalize_method_signature(signature: str) -> str:
@@ -518,7 +530,9 @@ def _smali_instructions(
         for label in catch_labels:
             lines.append("    :{}".format(label))
         lines.extend(debug_events.get(offset, []))
-        output = instruction.get_output(offset)
+        output = _compact_method_descriptors(
+            instruction.get_output(offset)
+        )
         target = _branch_target(offset, instruction)
         if target is not None and labels.get(target):
             output = _replace_branch_operand(output, labels[target][0])

@@ -4475,10 +4475,7 @@ def get_kind(cm: ClassManager, kind: int, value: int) -> str:
         method = cm.get_method_ref(value)
         class_name = method.get_class_name()
         name = method.get_name()
-        if hasattr(method, "get_real_descriptor"):
-            descriptor = method.get_real_descriptor()
-        else:
-            descriptor = "".join(method.get_descriptor().split())
+        descriptor = method.get_descriptor()
 
         return "{}->{}{}".format(class_name, name, descriptor)
 
