@@ -568,7 +568,9 @@ class HeaderItem:
         except (UnicodeDecodeError, ValueError):
             self.dex_version = 35  # assume a common version...
 
-        if zlib.adler32(read_at(buff, self.offset + 12)) != self.checksum:
+        if self.CM.vm.verify_checksum and zlib.adler32(
+            read_at(buff, self.offset + 12)
+        ) != self.checksum:
             raise ValueError("Wrong Adler32 checksum for DEX file!")
 
         if self.file_size != buff.raw.getbuffer().nbytes:
@@ -4486,7 +4488,7 @@ def get_kind(cm: ClassManager, kind: int, value: int) -> str:
 
     elif kind == Kind.FIELD:
         class_name, proto, field_name = cm.get_field(value)
-        return "{}->{} {}".format(class_name, field_name, proto)
+        return "{}->{}:{}".format(class_name, field_name, proto)
 
     elif kind == Kind.TYPE:
         return cm.get_type(value)
@@ -4508,6 +4510,25 @@ def get_kind(cm: ClassManager, kind: int, value: int) -> str:
         return buff
 
     return None
+
+
+def _format_method_reference(cm: ClassManager, value: int) -> str:
+    method = cm.get_method_ref(value)
+    descriptor = (
+        method.get_real_descriptor()
+        if hasattr(method, "get_real_descriptor")
+        else "".join(method.get_descriptor().split())
+    )
+    return "{}->{}{}".format(
+        method.get_class_name(),
+        method.get_name(),
+        descriptor,
+    )
+
+
+def _format_proto_descriptor(cm: ClassManager, value: int) -> str:
+    proto = cm.get_proto(value)
+    return "{}{}".format("".join(proto[0].split()), proto[1])
 
 
 class Instruction:
@@ -5131,34 +5152,11 @@ class Instruction35c(Instruction):
 
     def get_output(self, idx: int = -1) -> str:
         kind = get_kind(self.cm, self.get_kind(), self.BBBB)
-
-        if self.A == 0:
-            return "%s" % kind
-        elif self.A == 1:
-            return "v%d, %s" % (self.C, kind)
-        elif self.A == 2:
-            return "v%d, v%d, %s" % (self.C, self.D, kind)
-        elif self.A == 3:
-            return "v%d, v%d, v%d, %s" % (self.C, self.D, self.E, kind)
-        elif self.A == 4:
-            return "v%d, v%d, v%d, v%d, %s" % (
-                self.C,
-                self.D,
-                self.E,
-                self.F,
-                kind,
-            )
-        elif self.A == 5:
-            return "v%d, v%d, v%d, v%d, v%d, %s" % (
-                self.C,
-                self.D,
-                self.E,
-                self.F,
-                self.G,
-                kind,
-            )
-
-        return ''
+        registers = [self.C, self.D, self.E, self.F, self.G][: self.A]
+        register_text = "{{{}}}".format(
+            ", ".join("v{}".format(register) for register in registers)
+        )
+        return "{}, {}".format(register_text, kind)
 
     def get_operands(self, idx: int = -1) -> list[tuple]:
         l = []
@@ -5951,9 +5949,10 @@ class Instruction3rc(Instruction):
         kind = get_kind(self.cm, self.get_kind(), self.BBBB)
 
         if self.CCCC == self.NNNN:
-            return "v{}, {}".format(self.CCCC, kind)
+            register_text = "{{v{}}}".format(self.CCCC)
         else:
-            return "v{} ... v{}, {}".format(self.CCCC, self.NNNN, kind)
+            register_text = "{{v{} .. v{}}}".format(self.CCCC, self.NNNN)
+        return "{}, {}".format(register_text, kind)
 
     def get_operands(self, idx: int = -1) -> list[tuple[Operand, int]]:
         kind = get_kind(self.cm, self.get_kind(), self.BBBB)
@@ -6549,25 +6548,15 @@ class Instruction45cc(Instruction):
         )
 
     def get_output(self, idx: int = -1) -> str:
-        # FIXME get_kind of BBBB (method) and HHHH (proto)
-        if self.A == 1:
-            return 'v{}, {}, {}'.format(self.C, self.BBBB, self.HHHH)
-        if self.A == 2:
-            return 'v{}, v{}, {}, {}'.format(
-                self.C, self.D, self.BBBB, self.HHHH
-            )
-        if self.A == 3:
-            return 'v{}, v{}, v{}, {}, {}'.format(
-                self.C, self.D, self.E, self.BBBB, self.HHHH
-            )
-        if self.A == 4:
-            return 'v{}, v{}, v{}, v{}, {}, {}'.format(
-                self.C, self.D, self.E, self.F, self.BBBB, self.HHHH
-            )
-        if self.A == 5:
-            return 'v{}, v{}, v{}, v{}, v{}, {}, {}'.format(
-                self.C, self.D, self.E, self.F, self.G, self.BBBB, self.HHHH
-            )
+        registers = [self.C, self.D, self.E, self.F, self.G][: self.A]
+        register_text = "{{{}}}".format(
+            ", ".join("v{}".format(register) for register in registers)
+        )
+        return "{}, {}, {}".format(
+            register_text,
+            _format_method_reference(self.cm, self.BBBB),
+            _format_proto_descriptor(self.cm, self.HHHH),
+        )
 
     def get_operands(self):
         # FIXME
@@ -6595,9 +6584,10 @@ class Instruction4rcc(Instruction):
         )
 
     def get_output(self, idx: int = -1) -> str:
-        # FIXME get_kind of BBBB (meth) and HHHH (proto)
-        return 'v{} .. v{} {} {}'.format(
-            self.CCCC, self.NNNN, self.BBBB, self.HHHH
+        return "{}, {}, {}".format(
+            "{{v{} .. v{}}}".format(self.CCCC, self.NNNN),
+            _format_method_reference(self.cm, self.BBBB),
+            _format_proto_descriptor(self.cm, self.HHHH),
         )
 
     def get_operands(self):
@@ -8293,6 +8283,7 @@ class DEX:
         decompiler: Union[DecompilerDAD, None] = None,
         config=None,
         using_api: Union[int, None] = None,
+        verify_checksum: bool = True,
     ) -> None:
 
         # to allow to pass apk object ==> we do not need to pass additionally target version
@@ -8305,6 +8296,7 @@ class DEX:
         else:
             self.api_version = CONF["DEFAULT_API"]
 
+        self.verify_checksum = verify_checksum
         self.raw = io.BufferedReader(io.BytesIO(buff))
 
         self._flush()

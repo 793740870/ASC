@@ -181,6 +181,8 @@ class Writer:
         params = self.method.lparams
         if 'static' not in access:
             params = params[1:]
+        if len(params) != len(self.method.params_type):
+            params = list(range(len(self.method.params_type)))
         proto = ''
         self.write_ext(('PARENTHESIS_START', '('))
         if self.method.params_type:
