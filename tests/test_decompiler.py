@@ -12,8 +12,28 @@ from dex_fixture import make_dex, make_static_field_dex
 from droidasc.asc_core.core.dex.dex_manager import DexManager
 from droidasc.asc_core.utils.dex_parser import parse_encoded_array
 from droidasc.asc_core.utils.tinydex import DEX
+from dadguard.decompiler.writer import Writer
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class WriterTests(unittest.TestCase):
+    def test_abstract_method_keeps_declared_parameters_without_code(self):
+        class Method:
+            access = ['public', 'abstract']
+            cls_name = 'Lexample/Test;'
+            name = 'run'
+            type = 'V'
+            lparams = []
+            params_type = ['I', 'Ljava/lang/String;']
+
+        writer = Writer(None, Method())
+        writer.write_method()
+
+        self.assertIn(
+            'public abstract void run(int p0, String p1);',
+            str(writer),
+        )
 
 
 class RebuildTests(unittest.TestCase):
