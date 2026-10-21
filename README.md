@@ -1,8 +1,10 @@
 # Droid ASC: R8 Compiler Optimization as a DeCompiler Primitive
 
-> **Rust version:** This project has been rewritten 1:1 in Rust as [rust_ASC](https://github.com/MG1937/rust_ASC). The Rust version is 10× faster and supports full APK decompilation: with 16 threads, it decompiles a 383 MB APK in just 4 seconds. ASC and rust_ASC will be updated in sync going forward.
+> **Rust version:** This project has been rewritten 1:1 in Rust as [rust_ASC](https://github.com/MG1937/rust_ASC). The Rust version is 10× faster and supports full APK decompilation: with 16 threads, it decompiles a 383 MB APK in just 4 seconds.
 >
 > If your workflow is written in Python, you can continue integrating with this project; it remains the fastest Python Android decompiler available. If you only need a binary, please use [rust_ASC](https://github.com/MG1937/rust_ASC).
+>
+> ASC and rust_ASC will be maintained in parallel, so users can choose the integration style that best fits their workflow.
 
 https://blackhat.com/europe/arsenal/schedule/index.html#droid-asc-r8-compiler-optimization-as-a-decompiler-primitive-54834  
 
@@ -104,6 +106,7 @@ examples:
   droidasc disassemble app.apk Lcom/poc/Main; -o Main.smali
   droidasc disassemble app.apk com.poc.Main --debug
   droidasc disassemble app.apk com.poc.Main --debuginfo
+  droidasc disassemble app.apk com.poc.Main --method 'run(I)V'
   droidasc listclass app.apk
   droidasc listclass app.apk -o classes.txt
   droidasc listclass app.apk --prefix com.poc
@@ -135,8 +138,9 @@ line. With `-o`, output is written to the selected file instead of stdout.
 It extracts the target class from the APK, rebuilds a small DEX in memory, and
 disassembles the rebuilt DEX with `dadguard`. `--debug` enables timing output
 and instruction offset comments; `--debuginfo` enables DEX `.line` and local
-variable directives. All commands that support `-o` write to stdout when `-o`
-is omitted.
+variable directives. `--method 'run(I)V'` restricts output to one exact method
+signature; a bare method name is rejected. All commands that support `-o` write
+to stdout when `-o` is omitted.
 
 You can also use `python main.py` as before — it delegates to the same entry point.
 

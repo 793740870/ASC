@@ -36,6 +36,22 @@ class DisassemblerTests(unittest.TestCase):
         self.assertIn("const-string", output)
         self.assertIn("return-void", output)
 
+    def test_method_filter_requires_exact_full_signature(self):
+        output = disassemble_dex_bytes(
+            make_dex(),
+            method_signature="first()V",
+        )
+
+        self.assertIn(".method public static first()V", output)
+        self.assertNotIn(".method public static second()V", output)
+        with self.assertRaises(ValueError):
+            disassemble_dex_bytes(make_dex(), method_signature="first")
+        with self.assertRaises(ValueError):
+            disassemble_dex_bytes(
+                make_dex(),
+                method_signature="missing()V",
+            )
+
     def test_field_references_use_smali_colon_separator(self):
         output = disassemble_dex_bytes(make_instance_field_dex())
 
@@ -170,6 +186,31 @@ class DisassemblerTests(unittest.TestCase):
         self.assertIn("[DEBUG] Disassemble DEX rebuild:", result.stderr)
         self.assertIn("[DEBUG] Disassemble smali format:", result.stderr)
         self.assertIn("[DEBUG] Disassemble total:", result.stderr)
+
+    def test_cli_method_filter_uses_exact_signature(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apk_path = Path(directory) / "fixture.apk"
+            with zipfile.ZipFile(apk_path, "w") as archive:
+                archive.writestr("classes.dex", make_dex())
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "main.py"),
+                    "disassemble",
+                    str(apk_path),
+                    "example.Test",
+                    "--method",
+                    "first()V",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(".method public static first()V", result.stdout)
+        self.assertNotIn(".method public static second()V", result.stdout)
 
     def test_cli_debuginfo_enables_line_directives(self):
         with tempfile.TemporaryDirectory() as directory:

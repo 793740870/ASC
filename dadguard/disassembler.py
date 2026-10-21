@@ -89,6 +89,31 @@ def _compact_descriptor(descriptor) -> str:
     return "".join(str(descriptor).split())
 
 
+def _normalize_method_signature(signature: str) -> str:
+    if not signature or "(" not in signature or ")" not in signature:
+        raise ValueError(
+            "method signature must include the name, parameter descriptor and return type"
+        )
+    name, rest = signature.split("(", 1)
+    params, return_type = rest.split(")", 1)
+    if not name or not return_type:
+        raise ValueError(
+            "method signature must include the name, parameter descriptor and return type"
+        )
+    return "{}({}){}".format(
+        name,
+        _compact_descriptor(params),
+        _compact_descriptor(return_type),
+    )
+
+
+def _method_matches(method, signature: str) -> bool:
+    return "{}{}".format(
+        method.get_name(),
+        _compact_descriptor(method.get_descriptor()),
+    ) == signature
+
+
 def _format_reference(value) -> str:
     """Render a field/method reference stored inside an encoded value."""
     try:
@@ -610,6 +635,7 @@ def _format_class(
     cls,
     debug: bool = False,
     debuginfo: bool = False,
+    method_signature: str | None = None,
 ) -> list[str]:
     lines = ["# CLASS: {}".format(cls.get_name())]
     flags = cls.get_access_flags_string()
@@ -633,7 +659,7 @@ def _format_class(
     annotation_data = _annotation_data(cls)
     lines.extend(_annotation_lines(cls.CM, annotation_data["class"], ""))
 
-    fields = cls.get_fields()
+    fields = cls.get_fields() if method_signature is None else []
     if fields:
         lines.append("")
         lines.append("# fields")
@@ -641,6 +667,11 @@ def _format_class(
             lines.extend(_format_field(cls.CM, field, annotation_data["fields"]))
 
     methods = cls.get_methods()
+    if method_signature is not None:
+        methods = [
+            method for method in methods
+            if _method_matches(method, method_signature)
+        ]
     if methods:
         lines.append("")
         lines.append("# direct/virtual methods")
@@ -664,12 +695,24 @@ def format_dex_disassembly(
     size: int = 0,
     debug: bool = False,
     debuginfo: bool = False,
+    method_signature: str | None = None,
 ) -> str:
     """Return smali-like output for a DEX, or offset disassembly for a range."""
     if offset < 0 or size < 0:
         raise ValueError("offset and size must be non-negative")
 
     if size == 0 and offset == 0:
+        if method_signature is not None:
+            method_signature = _normalize_method_signature(method_signature)
+            if not any(
+                _method_matches(method, method_signature)
+                for cls in dex.get_classes()
+                for method in cls.get_methods()
+            ):
+                raise ValueError(
+                    "method not found or signature is not defined in the target DEX: "
+                    + method_signature
+                )
         lines = []
         for cls in dex.get_classes():
             lines.extend(
@@ -677,6 +720,7 @@ def format_dex_disassembly(
                     cls,
                     debug=debug,
                     debuginfo=debuginfo,
+                    method_signature=method_signature,
                 )
             )
             lines.append("")
@@ -705,6 +749,7 @@ def disassemble_dex_bytes(
     verify_checksum: bool = True,
     debug: bool = False,
     debuginfo: bool = False,
+    method_signature: str | None = None,
 ) -> str:
     """Parse DEX bytes and return their textual disassembly."""
     return format_dex_disassembly(
@@ -713,6 +758,7 @@ def disassemble_dex_bytes(
         size,
         debug=debug,
         debuginfo=debuginfo,
+        method_signature=method_signature,
     )
 
 
@@ -723,6 +769,7 @@ def disassemble_dex_file(
     verify_checksum: bool = True,
     debug: bool = False,
     debuginfo: bool = False,
+    method_signature: str | None = None,
 ) -> str:
     """Read a DEX file and return its textual disassembly."""
     with open(dex_path, "rb") as fp:
@@ -733,4 +780,5 @@ def disassemble_dex_file(
             verify_checksum=verify_checksum,
             debug=debug,
             debuginfo=debuginfo,
+            method_signature=method_signature,
         )

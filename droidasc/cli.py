@@ -118,6 +118,7 @@ def _handle_disassemble(args):
         verify_checksum=False,
         debug=args.debug,
         debuginfo=args.debuginfo,
+        method_signature=args.method_signature,
     )
     t_format_end = time.perf_counter()
     if args.debug:
@@ -322,6 +323,7 @@ examples:
   droidasc disassemble app.apk Lcom/poc/Main; -o Main.smali
   droidasc disassemble app.apk com.poc.Main --debug
   droidasc disassemble app.apk com.poc.Main --debuginfo
+  droidasc disassemble app.apk com.poc.Main --method 'run(I)V'
   droidasc listclass app.apk
   droidasc listclass app.apk -o classes.txt
   droidasc listclass app.apk --prefix com.poc
@@ -367,6 +369,7 @@ examples:
   droidasc disassemble app.apk com.poc.Main -o Main.smali
   droidasc disassemble app.apk com.poc.Main --threads 16 --debug
   droidasc disassemble app.apk com.poc.Main --debuginfo
+  droidasc disassemble app.apk com.poc.Main --method 'run(I)V'
 """,
     )
     disassemble_parser.add_argument("--debug", action="store_true", help="Enable debug profiling output.")
@@ -374,6 +377,11 @@ examples:
         "--debuginfo",
         action="store_true",
         help="Include DEX line and local-variable debug directives.",
+    )
+    disassemble_parser.add_argument(
+        "--method",
+        dest="method_signature",
+        help="Render one exact method signature, e.g. run(I)V.",
     )
     disassemble_parser.add_argument("--threads", "--thread", type=int, default=8, help="Worker count.")
     disassemble_parser.add_argument(
