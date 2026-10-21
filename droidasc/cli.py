@@ -95,6 +95,67 @@ def _handle_getclass(args):
     print(source_code)
 
 
+def _handle_disassemble(args):
+    from droidasc.asc_client.apk_handler import ApkHandler
+    from droidasc.asc_core.core.dex.dex_manager import DexManager
+    from dadguard.disassembler import disassemble_dex_bytes
+
+    t_start = time.perf_counter()
+    dalvik_class = _format_class_name(args.dalvik_class)
+    apk_handler = ApkHandler(args.apk_path, debug=args.debug, max_workers=args.threads)
+    hit = apk_handler.get_class_dex(dalvik_class)
+    if hit is None:
+        raise ValueError(f"Class {dalvik_class} not found in APK.")
+    t_lookup_end = time.perf_counter()
+
+    _dex_name, dex_buf = hit
+    rebuilt_dex = DexManager(memoryview(dex_buf), debug=args.debug).extract_and_rebuild(
+        dalvik_class
+    )
+    t_rebuild_end = time.perf_counter()
+    disassembly = disassemble_dex_bytes(
+        rebuilt_dex,
+        verify_checksum=False,
+        debug=args.debug,
+        debuginfo=args.debuginfo,
+    )
+    t_format_end = time.perf_counter()
+    if args.debug:
+        print(
+            "[DEBUG] Disassemble APK lookup: {:.3f} ms".format(
+                (t_lookup_end - t_start) * 1000
+            ),
+            file=sys.stderr,
+        )
+        print(
+            "[DEBUG] Disassemble DEX rebuild: {:.3f} ms".format(
+                (t_rebuild_end - t_lookup_end) * 1000
+            ),
+            file=sys.stderr,
+        )
+        print(
+            "[DEBUG] Disassemble smali format: {:.3f} ms".format(
+                (t_format_end - t_rebuild_end) * 1000
+            ),
+            file=sys.stderr,
+        )
+        print(
+            "[DEBUG] Disassemble total: {:.3f} ms".format(
+                (t_format_end - t_start) * 1000
+            ),
+            file=sys.stderr,
+        )
+    if args.output:
+        with open(args.output, "w", encoding="utf-8", newline="\n") as fp:
+            fp.write(disassembly)
+            if disassembly and not disassembly.endswith("\n"):
+                fp.write("\n")
+    else:
+        sys.stdout.write(disassembly)
+        if disassembly and not disassembly.endswith("\n"):
+            sys.stdout.write("\n")
+
+
 def _handle_listclass(args):
     from droidasc.asc_client.apk_handler import ApkHandler
 
@@ -167,12 +228,6 @@ def _handle_findrefs(args):
 def _run_gui(argv):
     parser = argparse.ArgumentParser(
         description="ASC GUI entry.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""examples:
-  droidasc app.apk --gui
-  droidasc app.apk --gui --debug
-  droidasc app.apk --gui --threads 16
-""",
     )
     parser.add_argument("apk_path", help="Path to the input APK file.")
     parser.add_argument("--gui", action="store_true", help="Launch GUI.")
@@ -230,6 +285,8 @@ def main():
     try:
         if args.command == "getclass":
             _handle_getclass(args)
+        elif args.command == "disassemble":
+            _handle_disassemble(args)
         elif args.command == "listclass":
             _handle_listclass(args)
         elif args.command == "getmanifest":
@@ -253,12 +310,22 @@ def _build_main_parser(show_version=False):
             else "ASC tooling entry."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""examples:
+        epilog="""common:
+  Class names accept both com.poc.Main and Lcom/poc/Main;.
+  Commands with -o/--output write to stdout when the option is omitted.
+  --threads N controls parallel APK scanning; --debug enables timing output.
+
+examples:
   droidasc app.apk --gui
   droidasc getclass app.apk Lcom/poc/Main; -o Main.java
   droidasc getclass app.apk com.poc.Main --threads 16
+  droidasc disassemble app.apk Lcom/poc/Main; -o Main.smali
+  droidasc disassemble app.apk com.poc.Main --debug
+  droidasc disassemble app.apk com.poc.Main --debuginfo
+  droidasc listclass app.apk
   droidasc listclass app.apk -o classes.txt
   droidasc listclass app.apk --prefix com.poc
+  droidasc getmanifest app.apk
   droidasc getmanifest app.apk -o AndroidManifest.xml
   droidasc findrefs app.apk string token -o string_refs.txt
   droidasc findrefs app.apk type com.poc.Main
@@ -286,7 +353,39 @@ def _build_main_parser(show_version=False):
     getclass_parser.add_argument("--threads", "--thread", type=int, default=8, help="Worker thread count.")
     getclass_parser.add_argument("-o", "--output", help="Also write decompiled output to this file.")
     getclass_parser.add_argument("apk_path", help="Path to the input APK file.")
-    getclass_parser.add_argument("dalvik_class", help="The Dalvik format class name to extract (e.g., Lcom/poc/Main;).")
+    getclass_parser.add_argument(
+        "dalvik_class",
+        help="Class name in dotted or Dalvik form, e.g. com.poc.Main or Lcom/poc/Main;.",
+    )
+
+    disassemble_parser = subparsers.add_parser(
+        "disassemble",
+        help="Extract a class, rebuild a small DEX, then disassemble it with dadguard.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""examples:
+  droidasc disassemble app.apk Lcom/poc/Main;
+  droidasc disassemble app.apk com.poc.Main -o Main.smali
+  droidasc disassemble app.apk com.poc.Main --threads 16 --debug
+  droidasc disassemble app.apk com.poc.Main --debuginfo
+""",
+    )
+    disassemble_parser.add_argument("--debug", action="store_true", help="Enable debug profiling output.")
+    disassemble_parser.add_argument(
+        "--debuginfo",
+        action="store_true",
+        help="Include DEX line and local-variable debug directives.",
+    )
+    disassemble_parser.add_argument("--threads", "--thread", type=int, default=8, help="Worker count.")
+    disassemble_parser.add_argument(
+        "-o",
+        "--output",
+        help="Write disassembly to this file; default is stdout.",
+    )
+    disassemble_parser.add_argument("apk_path", help="Path to the input APK file.")
+    disassemble_parser.add_argument(
+        "dalvik_class",
+        help="Class name in dotted or Dalvik form, e.g. com.poc.Main or Lcom/poc/Main;.",
+    )
 
     listclass_parser = subparsers.add_parser(
         "listclass",
@@ -376,7 +475,10 @@ def _build_main_parser(show_version=False):
     # parser) is not reset by the child's own default.
     extends_parser.add_argument("--debug", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     extends_parser.add_argument("--threads", "--thread", type=int, default=argparse.SUPPRESS, help=argparse.SUPPRESS)
-    extends_parser.add_argument("value", help="Target class, e.g. android.app.Activity or Lcom/poc/Base;")
+    extends_parser.add_argument(
+        "value",
+        help="Target class in dotted or Dalvik form.",
+    )
 
     impl_parser = find_subparsers.add_parser(
         "impl",
@@ -392,7 +494,10 @@ def _build_main_parser(show_version=False):
     # parser) is not reset by the child's own default.
     impl_parser.add_argument("--debug", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     impl_parser.add_argument("--threads", "--thread", type=int, default=argparse.SUPPRESS, help=argparse.SUPPRESS)
-    impl_parser.add_argument("value", help="Target interface, e.g. android.os.IInterface or Lcom/poc/Service;")
+    impl_parser.add_argument(
+        "value",
+        help="Target interface in dotted or Dalvik form.",
+    )
 
     method_parser = find_subparsers.add_parser(
         "method",

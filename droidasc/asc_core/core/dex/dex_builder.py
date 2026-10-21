@@ -209,21 +209,12 @@ class DexBuilder:
             new_header = bytearray(16)
             
             if len(orig_header) == 16:
-                # IDK why LLM gen this... I reviewed it and remove
-                """
-                regs = int.from_bytes(orig_header[0:2], 'little')
-                ins = int.from_bytes(orig_header[2:4], 'little')
-                outs = int.from_bytes(orig_header[4:6], 'little')
-                new_header[0:2] = regs.to_bytes(2, 'little')
-                new_header[2:4] = ins.to_bytes(2, 'little')
-                new_header[4:6] = outs.to_bytes(2, 'little')
-                new_header[6:8] = tries_size.to_bytes(2, 'little')
+                new_header = bytearray(orig_header)
                 new_header[8:12] = debug_info_off.to_bytes(4, 'little')
                 new_header[12:16] = insns_size.to_bytes(4, 'little')
-                """
                 _, catch_handler_list = self.hlw.code_item_metadata_hlws.get(method.index, (0, None))
                 
-                self.out.extend(orig_header)
+                self.out.extend(new_header)
                 self.out.extend(bc)
                 
                 if tries_size > 0:

@@ -6,10 +6,12 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 from droidasc.asc_client.apk.dex_reader import (
     _dex_defines_class as _defines_class,
+    class_defines_prefix_len,
     list_dex_classes as _list_classes,
 )
 from droidasc.asc_client.apk.loader import (
     _inflate_dex as _load_dex,
+    _inflate_dex_prefix,
     _parse_cd_dex_entries as _parse_entries,
 )
 from droidasc.asc_client.dex_container import iter_logical_dex_buffers
@@ -30,9 +32,34 @@ def _inflate_and_hit(
         return False, None, None
 
     t0 = time.perf_counter()
-    data = _load_dex(mm, entry, stop_event)
-    if data is None:
-        return False, None, None
+    prefix = _inflate_dex_prefix(
+        mm,
+        entry,
+        lambda buf, full_size: class_defines_prefix_len(
+            buf,
+            target_bytes,
+            full_size,
+        ),
+        stop_event,
+    )
+    if prefix is None:
+        data = _load_dex(mm, entry, stop_event)
+        if data is None:
+            return False, None, None
+    else:
+        prefix_data, complete = prefix
+        try:
+            prefix_hit = _defines_class(prefix_data, target_bytes)
+        except (IndexError, ValueError):
+            prefix_hit = None
+        if prefix_hit is False:
+            return False, None, None
+        if complete:
+            data = prefix_data
+        else:
+            data = _load_dex(mm, entry, stop_event)
+            if data is None:
+                return False, None, None
     t1 = time.perf_counter()
     if stop_event is not None and stop_event.is_set():
         return False, None, None

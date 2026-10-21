@@ -266,3 +266,170 @@ def make_static_field_dex():
     buf[12:32] = hashlib.sha1(buf[32:]).digest()
     struct.pack_into('<I', buf, 8, zlib.adler32(buf[12:]) & 0xffffffff)
     return bytes(buf)
+
+
+def make_rich_dex():
+    """Build a DEX containing smali metadata, branches, debug info and catch."""
+    strings = [
+        b'Lexample/Rich;',
+        b'Ljava/lang/Object;',
+        b'I',
+        b'Lexample/Marker;',
+        b'Rich.java',
+        b'value',
+        b'run',
+        b'arg',
+        b'Ljava/lang/Exception;',
+        b'Ldalvik/annotation/Deprecated;',
+    ]
+    buf = bytearray(112)
+    sections = [(0, 1, 0)]
+
+    def section(kind, size, data, align=4):
+        buf.extend(b'\0' * (-len(buf) % align))
+        off = len(buf)
+        sections.append((kind, size, off))
+        buf.extend(data)
+        return off
+
+    string_ids = section(1, len(strings), bytes(4 * len(strings)))
+    # type_ids are sorted by descriptor, as required by the DEX format:
+    # I, Deprecated, Rich, Marker, Exception, Object.
+    type_ids = section(2, 6, struct.pack('<IIIIII', 2, 9, 0, 3, 8, 1))
+    proto_ids = section(3, 1, bytes(12))
+    field_ids = section(4, 1, struct.pack('<HHI', 2, 0, 5))
+    method_ids = section(5, 1, struct.pack('<HHI', 2, 0, 6))
+    class_defs = section(6, 1, bytes(32))
+
+    data_off = len(buf)
+    string_data_off = section(
+        0x2002,
+        len(strings),
+        b''.join(uleb(len(value)) + value + b'\0' for value in strings),
+        align=1,
+    )
+    off = string_data_off
+    for index, value in enumerate(strings):
+        struct.pack_into('<I', buf, string_ids + 4 * index, off)
+        off += len(uleb(len(value))) + len(value) + 1
+
+    type_lists_off = section(
+        0x1001,
+        2,
+        struct.pack('<I H 2x', 1, 3) + struct.pack('<I H 2x', 1, 0),
+    )
+    interfaces_off = type_lists_off
+    parameters_off = type_lists_off + 8
+    struct.pack_into('<III', buf, proto_ids, 2, 0, parameters_off)
+
+    debug_info = (
+        uleb(10)
+        + uleb(1)
+        + uleb(8)
+        + b'\x0e'
+        + b'\x01' + uleb(3)
+        + b'\x03' + uleb(0) + uleb(8) + uleb(1)
+        + b'\x01' + uleb(3)
+        + b'\x05' + uleb(0)
+        + b'\x0f'
+        + b'\x00'
+    )
+    debug_off = section(0x2003, 1, debug_info, align=1)
+
+    instructions = (
+        b'\x12\x00'          # const/4 v0, 0
+        b'\x39\x00\x02\x00'  # if-nez v0, :cond_0
+        b'\x12\x10'          # const/4 v0, 1
+        b'\x28\x02'          # goto :goto_0
+        b'\x00\x00'          # nop
+        b'\x0f\x00'          # return v0
+    )
+    code = (
+        struct.pack('<HHHHII', 2, 1, 0, 1, debug_off, 7)
+        + instructions
+        + b'\0\0'
+        + struct.pack('<I2H', 0, 6, 1)
+        + b'\x01\x01' + uleb(4) + uleb(6)
+    )
+    code_off = section(0x2001, 1, code)
+
+    class_data = (
+        b'\x00\x01\x01\x00'
+        + b'\x00\x01'
+        + b'\x00\x01' + uleb(code_off)
+    )
+    class_data_off = section(0x2000, 1, class_data, align=1)
+
+    annotation_item = section(
+        0x2004,
+        1,
+        b'\x01' + uleb(1) + uleb(0),
+        align=1,
+    )
+    annotation_set = section(
+        0x1003,
+        1,
+        struct.pack('<II', 1, annotation_item),
+    )
+    annotations_directory = (
+        struct.pack('<4I', annotation_set, 1, 1, 0)
+        + struct.pack('<2I', 0, annotation_set)
+        + struct.pack('<2I', 0, annotation_set)
+    )
+    annotations_off = section(0x2006, 1, annotations_directory)
+
+    struct.pack_into(
+        '<IIIIIIII',
+        buf,
+        class_defs,
+        2,
+        1,
+        5,
+        interfaces_off,
+        4,
+        annotations_off,
+        class_data_off,
+        0,
+    )
+
+    buf.extend(b'\0' * (-len(buf) % 4))
+    map_off = len(buf)
+    sections.append((0x1000, 1, map_off))
+    buf.extend(struct.pack('<I', len(sections)))
+    for kind, count, offset in sections:
+        buf.extend(struct.pack('<HHII', kind, 0, count, offset))
+
+    buf[:8] = b'dex\n035\0'
+    struct.pack_into(
+        '<IIIIII',
+        buf,
+        32,
+        len(buf),
+        112,
+        0x12345678,
+        0,
+        0,
+        map_off,
+    )
+    struct.pack_into(
+        '<IIIIIIIIIIIIII',
+        buf,
+        56,
+        len(strings),
+        string_ids,
+        6,
+        type_ids,
+        1,
+        proto_ids,
+        1,
+        field_ids,
+        1,
+        method_ids,
+        1,
+        class_defs,
+        len(buf) - data_off,
+        data_off,
+    )
+    buf[12:32] = hashlib.sha1(buf[32:]).digest()
+    struct.pack_into('<I', buf, 8, zlib.adler32(buf[12:]) & 0xffffffff)
+    return bytes(buf)

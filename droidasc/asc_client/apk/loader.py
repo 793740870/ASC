@@ -118,6 +118,63 @@ def _inflate_deflate_chunks(comp_view, stop_event):
     return bytes(out)
 
 
+def _inflate_dex_prefix(mm : mmap.mmap, entry, prefix_need, stop_event = None):
+    """Inflate only the prefix required by ``prefix_need``.
+
+    Returns ``(data, complete)``. ``complete`` is true for stored entries;
+    ``None`` means the caller should fall back to the existing full inflate
+    path because the prefix is not safe or no longer worth streaming.
+    """
+    _name, uncomp_size, comp_size, local_header_off, comp_method = entry
+    if mm[local_header_off:local_header_off + 4] != _LH_SIG:
+        raise ValueError("bad local header signature")
+
+    name_len = _U16_FROM(mm, local_header_off + 26)[0]
+    extra_len = _U16_FROM(mm, local_header_off + 28)[0]
+    data_off = local_header_off + 30 + name_len + extra_len
+    comp_view = memoryview(mm)[data_off:data_off + comp_size]
+
+    if comp_method == 0:
+        return bytes(comp_view), True
+    if comp_method != 8:
+        raise ValueError(f"unsupported compression method: {comp_method}")
+
+    decomp = zlib.decompressobj(-15)
+    out = bytearray()
+    compressed_pos = 0
+    pending = b""
+    while True:
+        if stop_event is not None and stop_event.is_set():
+            return None
+        try:
+            target = min(int(prefix_need(out, uncomp_size)), uncomp_size)
+        except (IndexError, TypeError, ValueError, struct.error):
+            return None
+        if target >= uncomp_size:
+            return None
+        if len(out) >= target:
+            return bytes(out), False
+
+        if pending:
+            chunk = pending
+            pending = b""
+        else:
+            if compressed_pos >= len(comp_view):
+                # The stream ended before the requested prefix. Let the
+                # existing full path perform its normal size/error handling.
+                return None
+            end = min(compressed_pos + _DEFLATE_CHUNK, len(comp_view))
+            chunk = comp_view[compressed_pos:end]
+            compressed_pos = end
+
+        max_output = max(1, target - len(out))
+        produced = decomp.decompress(chunk, max_output)
+        out.extend(produced)
+        pending = decomp.unconsumed_tail
+        if not produced and not pending and compressed_pos >= len(comp_view):
+            return None
+
+
 def _inflate_dex(mm : mmap.mmap, entry, stop_event = None):
     _name, uncomp_size, comp_size, local_header_off, comp_method = entry
     if mm[local_header_off:local_header_off + 4] != _LH_SIG:

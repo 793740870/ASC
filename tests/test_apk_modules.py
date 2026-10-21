@@ -13,6 +13,62 @@ from droidasc.asc_client.apk import dex_reader, loader, worker
 
 
 class LoaderTests(unittest.TestCase):
+    def test_prefix_inflate_skips_trailing_dex_data(self):
+        payload = make_dex() + (b"padding" * 1024)
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "fixture.apk"
+            with zipfile.ZipFile(apk, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("classes.dex", payload)
+
+            with apk.open("rb") as fp, mmap.mmap(
+                fp.fileno(), 0, access=mmap.ACCESS_READ
+            ) as mm:
+                entry = loader._parse_cd_dex_entries(mm)[0]
+                prefix = loader._inflate_dex_prefix(
+                    mm,
+                    entry,
+                    lambda buf, full_size: dex_reader.class_defines_prefix_len(
+                        buf,
+                        b"Lexample/Test;",
+                        full_size,
+                    ),
+                )
+
+                self.assertIsNotNone(prefix)
+                prefix_data, complete = prefix
+                self.assertFalse(complete)
+                self.assertLess(len(prefix_data), len(payload))
+                self.assertTrue(
+                    dex_reader._dex_defines_class(
+                        prefix_data,
+                        b"Lexample/Test;",
+                    )
+                )
+                self.assertEqual(loader._inflate_dex(mm, entry), payload)
+
+    def test_prefix_inflate_keeps_stored_entries_on_full_path(self):
+        payload = make_dex() + (b"padding" * 128)
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "fixture.apk"
+            with zipfile.ZipFile(apk, "w", compression=zipfile.ZIP_STORED) as archive:
+                archive.writestr("classes.dex", payload)
+
+            with apk.open("rb") as fp, mmap.mmap(
+                fp.fileno(), 0, access=mmap.ACCESS_READ
+            ) as mm:
+                entry = loader._parse_cd_dex_entries(mm)[0]
+                prefix = loader._inflate_dex_prefix(
+                    mm,
+                    entry,
+                    lambda buf, full_size: dex_reader.class_defines_prefix_len(
+                        buf,
+                        b"Lexample/Test;",
+                        full_size,
+                    ),
+                )
+
+                self.assertEqual(prefix, (payload, True))
+
     def test_stored_and_deflated_entries_round_trip(self):
         payload = make_dex()
         for compression in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):

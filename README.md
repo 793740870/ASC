@@ -77,14 +77,16 @@ pip install .
 After installation, the `droidasc` CLI command is available globally:
 
 ```
-usage: droidasc [-h] {getclass,listclass,getmanifest,findrefs} ...
+usage: droidasc [-h] {getclass,disassemble,listclass,getmanifest,findrefs} ...
 
 ASC tooling entry (v0.1.2.post1).
 
 positional arguments:
-  {getclass,listclass,getmanifest,findrefs}
+  {getclass,disassemble,listclass,getmanifest,findrefs}
     getclass            Locate the target class in APK, extract one DEX in
                         memory, then decompile.
+    disassemble         Extract a class, rebuild a small DEX, then disassemble
+                        it with dadguard.
     listclass           List classes across all DEX entries; use --prefix to
                         filter by package/class prefix.
     getmanifest         Decode AndroidManifest.xml from APK and print it as
@@ -99,8 +101,13 @@ examples:
   droidasc app.apk --gui
   droidasc getclass app.apk Lcom/poc/Main; -o Main.java
   droidasc getclass app.apk com.poc.Main --threads 16
+  droidasc disassemble app.apk Lcom/poc/Main; -o Main.smali
+  droidasc disassemble app.apk com.poc.Main --debug
+  droidasc disassemble app.apk com.poc.Main --debuginfo
+  droidasc listclass app.apk
   droidasc listclass app.apk -o classes.txt
   droidasc listclass app.apk --prefix com.poc
+  droidasc getmanifest app.apk
   droidasc getmanifest app.apk -o AndroidManifest.xml
   droidasc findrefs app.apk string token -o string_refs.txt
   droidasc findrefs app.apk type com.poc.Main
@@ -123,6 +130,13 @@ extend a target class or implement a target interface, respectively.
 line. With `-o`, output is written to the selected file instead of stdout.
 `--prefix com.poc` filters by `Lcom/poc`; an already normalized prefix such as
 `Lcom/poc` is kept unchanged.
+
+`disassemble` accepts the same dotted or Dalvik class formats as `getclass`.
+It extracts the target class from the APK, rebuilds a small DEX in memory, and
+disassembles the rebuilt DEX with `dadguard`. `--debug` enables timing output
+and instruction offset comments; `--debuginfo` enables DEX `.line` and local
+variable directives. All commands that support `-o` write to stdout when `-o`
+is omitted.
 
 You can also use `python main.py` as before — it delegates to the same entry point.
 
