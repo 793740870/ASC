@@ -1,11 +1,11 @@
 from .base_locator import BaseLocator
+from bisect import bisect_right
 import struct
 from ...utils.leb128 import read_uleb128_len
 import re
 import time
 
 # Auth: MG1937
-_STRUCT_I = struct.Struct('<I')
 
 # r8 using MUTF8 to handle string payload,
 # so 0x00 will be encoded to 0xC0 0x80
@@ -13,6 +13,8 @@ class StringLocator(BaseLocator):
     def __init__(self, dex):
         super().__init__(dex)
         self.stridx_map = {} # {string_data_off : string_idx}
+        self.starts = [] # string_data_off of every item, ascending
+        self.ordered = False # items written in string_ids order
         self.strdata_start = 0
         self.strdata_end = 0
         self.parsed = False
@@ -28,24 +30,33 @@ class StringLocator(BaseLocator):
             self.parsed = True
             self._debug_log("build_map", t_start, 0)
             return
-        # might buggy.. r8 not specify the first string data off is the begging of all string data off, but usually it was...
-        self.strdata_start = _STRUCT_I.unpack_from(buf, string_ids_off)[0]
-        for idx in range(string_ids_size):
-            data_offset = _STRUCT_I.unpack_from(buf, string_ids_off)[0]
-            string_ids_off += 4
-            stridx_map[data_offset] = idx
-        # Include the final string_data_item. The existing lookup maps a
-        # match through the following string offset, so add an end sentinel
-        # for the final item without changing that mapping scheme.
+        # string_ids only stores offsets, and the format does not require the items
+        # to be written in index order: layout passes such as dexlayout (and the
+        # vendor tools that repackage system APKs) permute them. Neither the first
+        # nor the last entry bounds the region, so take it from the offsets instead.
+        offsets = struct.unpack_from(f'<{string_ids_size}I', buf, string_ids_off)
+        stridx_map.update(zip(offsets, range(string_ids_size)))
+        starts = sorted(offsets)
+        # in index order the item behind a match also carries the next index, so one
+        # dict lookup resolves the match. A permuted layout has to search instead,
+        # see _locate_by_start, so the layout is recorded once here.
+        self.ordered = starts == list(offsets)
+        self.starts = starts
+        self.strdata_start = starts[0]
+        # the item with the largest offset is the one written last; its terminator
+        # closes the region
+        last = starts[-1]
         self.strdata_end = buf.obj.find(
-            b'\x00', data_offset + read_uleb128_len(buf, data_offset)
+            b'\x00', last + read_uleb128_len(buf, last)
         ) + 1
-        stridx_map[self.strdata_end] = string_ids_size
+        if self.ordered:
+            # the final item has no successor, close the lookup with a sentinel that
+            # maps to the end of the table
+            stridx_map[self.strdata_end] = string_ids_size
         self.parsed = True
         self._debug_log("build_map", t_start, len(stridx_map))
 
-    def _match_string_offset(self, string : str):
-        buf = self.buf
+    def _pattern(self, string : str):
         # the region below holds MUTF-8, where a code point above the BMP is stored
         # as a surrogate pair (CESU-8) that a UTF-8 pattern can never match. The two
         # encodings agree below the BMP, so only such a pattern pays for the encoder
@@ -54,29 +65,50 @@ class StringLocator(BaseLocator):
         if any(ord(ch) > 0xFFFF for ch in string):
             from mutf8 import encode_modified_utf8
             pattern_bytes = encode_modified_utf8(string)
-        strdata_start = self.strdata_start
-        strdata_end = self.strdata_end
-        submem = buf[strdata_start: strdata_end]
-        
-        mm = submem.obj
-        pattern = re.compile(pattern_bytes)
-        
-        # offsets = []
-        for match in pattern.finditer(submem):
-            offset = strdata_start + match.end()
-            offset = mm.find(b'\x00', offset, strdata_end)
-            yield offset + 1
-            # offsets.append(offset + 1) # skip over 00 byte
-        # return offsets
+        return re.compile(pattern_bytes)
+
+    def _locate_by_start(self, match_start, match_end):
+        """Resolve a match to the item that holds it when the layout is permuted."""
+        starts = self.starts
+        pos = bisect_right(starts, match_start) - 1
+        if pos < 0:
+            return None
+        # the item ends where the next one starts, so the match may not reach it
+        boundary = starts[pos + 1] if pos < len(starts) - 1 else self.strdata_end
+        if match_end >= boundary:
+            return None
+        return self.stridx_map[starts[pos]]
 
     def locate(self, string : str) -> set:
         t_start = time.perf_counter() if self.debug else None
         if not self.parsed:
             self._build_map()
         stridx_map = self.stridx_map
+        ordered = self.ordered
+        buf = self.buf
+        mm = buf.obj
+        strdata_start = self.strdata_start
+        strdata_end = self.strdata_end
         located_idx = set()
-        for offset in self._match_string_offset(string):
-            located_idx.add(stridx_map[offset] - 1)
+        for match in self._pattern(string).finditer(buf[strdata_start:strdata_end]):
+            match_start = strdata_start + match.start()
+            match_end = strdata_start + match.end()
+            # the payload ends at the first terminator behind the match start, since
+            # a MUTF-8 payload never holds 0x00 on its own. A match that reaches past
+            # it runs through the terminator into the following item.
+            terminator = mm.find(b'\x00', match_start, strdata_end)
+            if terminator < match_end:
+                continue
+            if ordered:
+                # the item written behind this one carries the next index, so its
+                # index minus one is the item that ends at this terminator
+                idx = stridx_map.get(terminator + 1)
+                if idx is not None:
+                    located_idx.add(idx - 1)
+                    continue
+            idx = self._locate_by_start(match_start, match_end)
+            if idx is not None:
+                located_idx.add(idx)
         # return set for O(1) lookup
         self._debug_log("locate", t_start, len(located_idx))
         return located_idx

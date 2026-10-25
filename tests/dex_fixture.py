@@ -433,3 +433,41 @@ def make_rich_dex():
     buf[12:32] = hashlib.sha1(buf[32:]).digest()
     struct.pack_into('<I', buf, 8, zlib.adler32(buf[12:]) & 0xffffffff)
     return bytes(buf)
+
+
+def uleb_len(buf, off):
+    """Length of the uleb128 value stored at ``off``."""
+    size = 0
+    while buf[off + size] & 0x80:
+        size += 1
+    return size + 1
+
+
+def reorder_string_data(data, order):
+    """Store the string_data_items of a DEX in ``order``.
+
+    ``order`` lists string indexes in the sequence they should be written on
+    disk. The items only move inside their existing region, string_ids is
+    repointed at the new offsets, and the SHA-1 signature and Adler-32 checksum
+    are recomputed, so the result is a valid DEX with unchanged code. Layout
+    tools such as dexlayout produce the same kind of ordering.
+    """
+    buf = bytearray(data)
+    size, ids_off = struct.unpack_from('<II', buf, 0x38)
+    offsets = struct.unpack_from(f'<{size}I', buf, ids_off)
+    items = []
+    for off in offsets:
+        end = off + uleb_len(buf, off)
+        items.append(bytes(buf[off:buf.index(b'\x00', end) + 1]))
+    start = min(offsets)
+    stop = max(off + len(item) for off, item in zip(offsets, items))
+    if sum(len(item) for item in items) != stop - start:
+        raise ValueError('string_data region is not contiguous')
+    pos = start
+    for idx in order:
+        struct.pack_into('<I', buf, ids_off + 4 * idx, pos)
+        pos += len(items[idx])
+    buf[start:stop] = b''.join(items[idx] for idx in order)
+    buf[12:32] = hashlib.sha1(buf[32:]).digest()
+    struct.pack_into('<I', buf, 8, zlib.adler32(buf[12:]) & 0xffffffff)
+    return bytes(buf)
